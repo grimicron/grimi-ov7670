@@ -1,0 +1,12 @@
+3V3   -> 3.3V
+GND   -> GND
+RESET -> 3.3V
+PDWN  -> GND
+SCL   -> G03
+SDA   -> G02
+MCLK  -> G04
+PCLK  -> G23
+HS    -> G27
+VS    -> G22
+D0..7 -> G14..21
+
