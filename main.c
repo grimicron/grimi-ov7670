@@ -56,7 +56,7 @@
 #define LOW 0
 
 // Resistor mode values
-#define R_NONE 0
+#define R_FLOAT 0
 #define R_DOWN 1
 #define R_UP 2
 
@@ -74,7 +74,7 @@
 #define DATA 14
 
 // Will be approximated as accurately as possible, in Hz
-#define MCLK_FREQ 48000000
+#define MCLK_FREQ 10000000
 
 #define I2C_WRITE_MODE 0
 #define I2C_READ_MODE 1
@@ -90,23 +90,29 @@
 // This is only te first 7 bits of the address, so in reality the 8-bit addresses are
 // 0x42 for WRITE and 0x43 for READ
 #define I2C_CAM_ADDR 0x21
+// These should be coordinated with the resolution and divider settings in CAM_SETTINGS
+#define CAM_IMG_WIDTH 640
+#define CAM_IMG_HEIGHT 480
 
 // It's a very good idea to have a look at the datasheet for this one
 char CAM_SETTINGS[] = {
-     0x12, 0x02
-    ,0x13, 0x80
+     0x12, 0x04 // RGB format
+    ,0x15, 0x00 // HS acts like HREF, no PCLK during horizontal blank
+    ,0x11, 0x00 // Divide internal clock by 1
 };
 
 volatile int* gpio = NULL;
 volatile int* clk = NULL;
+// char* is just as space and speed efficient as int*, since the instruction set for this ARM
+// CPU (Cortex A-72) permits 1 byte-aligned accesses and the compiler makes full use of them (I checked
+// the assembly)
+char** img = NULL;
 
-// Sets the pull-down/pull-up resistor of p to the mode specified by m, only working for
-// GPIO 0-31
+// Sets the pull-down/pull-up resistor of p to the mode specified by m, only working for GPIO 0-31
 // This is a VERY slow operation since it has to wait twice for clock signals to stabilise,
 // so it should be used SPARINGLY
 // As much as I would like for this to be a macro, the process is just too complex to fit
 // it all into one, but it still uses the same nomenclature
-// Also, I'm not even sure if my implementation or the physical resistors work properly
 void RESISTOR(int p, int m){
     // GPPUD 0x25
     // GPPUDCLK0 0x26
@@ -132,40 +138,8 @@ void init_mmaps(){
     close(fd);
 }
 
-// Initializes the MCLK pin to output the best approximation with whole dividers in MHz
-// of the provided frequency (also in MHz), returns the approximated frequency in MHz
-float init_mclk(float hz){
-    // Activate GPCLK function (this isn't specific to any one GPCLK, all pins which support
-    // GPCLK have it on ALT0)
-    MODE(MCLK, M_ALT0);
-    // Docs for this are in the BCM2835 datasheet, section 5.4 (don't trust the base addresses!!)
-    // For some reason every time we write to these GPCLK registers,
-    // the highest byte has to be 0x5A, as it's some sort of clock manager
-    // password (huh??)
-    // The addresses that we use for this setup are hardcoded to be the ones programming
-    // GPCLK0, but they can be increased by 2 or 4 to program the other 2 GPCLKs
-    // Disable the ENABLE bit, turn on KILL bit (just in case even though it's unsafe)
-    // and clear the selected source on CM_GP0CTL register
-    clk[0x1C] = 0x5A000020;
-    // Wait for BUSY to go LOW
-    while (clk[0x1C] & (1<<7));
-    // Calculate the ideal divisor to achieve the target frequency
-    float f_div = 500000000.0 / (float)hz;
-    // Round it and clamp it (cases shouldn't be this extreme though)
-    int i_div = round(f_div);
-    if      (i_div <= 0)     i_div = 1;
-    // It can't exceed 12 bits
-    else if (i_div > 0x1000) i_div = 0xFFF;
-    // Send it to register
-    clk[0x1D] = 0x5A000000 | (i_div << 12);
-    // Set ENABLE bit again, set source to PLLD (500MHz), disable MASH
-    clk[0x1C] = 0x5A000016;
-    // Return the approximated frequency
-    return 500000000.0 / ((float)i_div);
-}
-
 // Called once at the beginning of the program
-void init_i2c(){
+void i2c_init(){
     // I2C buses have both lines pulled up HIGH (for this same reason, the pins
     // selected for I2C must have the capacity to be pulled HIGH by a resistor, which
     // is specified in the BCM2835 datasheet for each pin)
@@ -345,6 +319,53 @@ char i2c_read(int ack){
     return val;
 }
 
+void cam_init_pins(){
+    // Basically all pins are on INPUT mode, the I2C pins are taken care of by the i2c_init function
+    for (int i = 0; i < 8; i++){
+        MODE(DATA+i, M_INPUT);
+        RESISTOR(DATA+i, R_FLOAT);
+    }
+    MODE(VS, M_INPUT);
+    RESISTOR(VS, R_FLOAT);
+    MODE(HS, M_INPUT);
+    RESISTOR(HS, R_FLOAT);
+    MODE(PCLK, M_INPUT);
+    RESISTOR(PCLK, R_FLOAT);
+    // Activate GPCLK function (this isn't specific to any one GPCLK, all pins which support
+    // GPCLK have it on ALT0)
+    MODE(MCLK, M_ALT0);
+    RESISTOR(MCLK, R_FLOAT);
+}
+
+// Initializes the MCLK pin to output the best approximation with whole dividers in MHz
+// of the provided frequency (also in MHz), returns the approximated frequency in MHz
+float cam_init_mclk(float hz){
+    // Docs for this are in the BCM2835 datasheet, section 5.4 (don't trust the base addresses!!)
+    // For some reason every time we write to these GPCLK registers,
+    // the highest byte has to be 0x5A, as it's some sort of clock manager
+    // password (huh??)
+    // The addresses that we use for this setup are hardcoded to be the ones programming
+    // GPCLK0, but they can be increased by 2 or 4 to program the other 2 GPCLKs
+    // Disable the ENABLE bit, turn on KILL bit (just in case even though it's unsafe)
+    // and clear the selected source on CM_GP0CTL register
+    clk[0x1C] = 0x5A000020;
+    // Wait for BUSY to go LOW
+    while (clk[0x1C] & (1<<7));
+    // Calculate the ideal divisor to achieve the target frequency
+    float f_div = 500000000.0 / (float)hz;
+    // Round it and clamp it (cases shouldn't be this extreme though)
+    int i_div = round(f_div);
+    if      (i_div <= 0)     i_div = 1;
+    // It can't exceed 12 bits
+    else if (i_div > 0x1000) i_div = 0xFFF;
+    // Send it to register
+    clk[0x1D] = 0x5A000000 | (i_div << 12);
+    // Set ENABLE bit again, set source to PLLD (500MHz), disable MASH
+    clk[0x1C] = 0x5A000016;
+    // Return the approximated frequency
+    return 500000000.0 / ((float)i_div);
+}
+
 void cam_init_settings(){
     int res = i2c_start_transmission(I2C_CAM_ADDR, I2C_WRITE_MODE);
     if (res == 1){
@@ -368,13 +389,58 @@ void cam_init_settings(){
     printf("Initialization of camera settings successful\n");
 }
 
-int main(){
+char** cam_init_buffer(){
+    // We split the buffer into memory blocks in order to avoid situations where
+    // malloc fails because there aren't enough continuous free memory blocks
+    char** buf = (char**)malloc(sizeof(char*) * CAM_IMG_HEIGHT);
+    for (int i = 0; i < CAM_IMG_HEIGHT; i++){
+        // We don't need to multiply by a size since we know a char is 1 byte
+        buf[i] = (char*)malloc(CAM_IMG_WIDTH);
+    }
+	return buf;
+}
+
+// Writes the raw data to the buffer given to it
+// The buffer should be an array with CAM_IMG_HEIGHT pointers to char arrays
+// with CAM_IMG_WIDTH entries
+void cam_get_frame(char** buf){
+    // Wait for new frame
+    while (!INPUT(VS));
+    while (INPUT(VS));
+    for (int i = 0; i < CAM_IMG_HEIGHT; i++){
+        // Wait for HREF
+        while (!INPUT(HS));
+        for (int j = 0; j < CAM_IMG_WIDTH; j++){
+            while (!INPUT(PCLK));
+            // Receive byte while PCLK is HIGH
+            buf[i][j] = BYTEIN(DATA);
+            while (INPUT(PCLK));
+        }
+        while (INPUT(HS));
+    }
+}
+
+void cam_setup(){
     init_mmaps();
-    float out_freq = init_mclk(MCLK_FREQ);
-    printf("MCLK outputing %fMHz\n", out_freq);
-    init_i2c();
-    printf("I2C line initialized at %fHz\n", (float)I2C_FREQ);
+    printf("Memory maps to GPIO (%p) and GPCLK (%p) registers successful\n", (void*)GPIO_PINS, (void*)GPIO_CLK);
+    cam_init_pins();
+    printf("Pins assigned correct function\n");
+    float out_freq = cam_init_mclk(MCLK_FREQ);
+    printf("MCLK outputing %.2fMHz\n", out_freq/1000000.0);
+    i2c_init();
+    printf("I2C line initialized at %.2fKHz\n", (float)I2C_FREQ/1000.0);
     cam_init_settings();
+    img = cam_init_buffer();
+    printf("Camera image buffer allocated (%d bytes)\n", CAM_IMG_HEIGHT*CAM_IMG_WIDTH);
+
+}
+
+int main(){
+    cam_setup();
+	while (1){
+		cam_get_frame(img);
+		printf("Camera frame captured\n");
+	}
     return 0;
 }
 

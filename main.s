@@ -1,6 +1,13 @@
 	.arch armv8-a
 	.file	"main.c"
 	.text
+	.global	CAM_SETTINGS
+	.data
+	.align	3
+	.type	CAM_SETTINGS, %object
+	.size	CAM_SETTINGS, 4
+CAM_SETTINGS:
+	.ascii	"\022\004\025 "
 	.global	gpio
 	.bss
 	.align	3
@@ -197,8 +204,7 @@ init_mclk:
 	str	w1, [x0]
 	ldr	s0, [sp, 44]
 	scvtf	s0, s0
-	mov	w0, 27432
-	movk	w0, 0x4dee, lsl 16
+	mov	w0, 1140457472
 	fmov	s1, w0
 	fdiv	s0, s1, s0
 	ldp	x29, x30, [sp], 48
@@ -210,9 +216,9 @@ init_mclk:
 .LFE8:
 	.size	init_mclk, .-init_mclk
 	.align	2
-	.global	init_i2c
-	.type	init_i2c, %function
-init_i2c:
+	.global	i2c_init
+	.type	i2c_init, %function
+i2c_init:
 .LFB9:
 	.cfi_startproc
 	stp	x29, x30, [sp, -16]!
@@ -264,7 +270,7 @@ init_i2c:
 	ret
 	.cfi_endproc
 .LFE9:
-	.size	init_i2c, .-init_i2c
+	.size	i2c_init, .-i2c_init
 	.align	2
 	.global	i2c_in_use
 	.type	i2c_in_use, %function
@@ -331,6 +337,28 @@ i2c_start:
 	.cfi_offset 29, -16
 	.cfi_offset 30, -8
 	mov	x29, sp
+	adrp	x0, gpio
+	add	x0, x0, :lo12:gpio
+	ldr	x0, [x0]
+	ldr	w1, [x0]
+	adrp	x0, gpio
+	add	x0, x0, :lo12:gpio
+	ldr	x0, [x0]
+	and	w1, w1, -449
+	str	w1, [x0]
+	mov	w0, 5
+	bl	usleep
+	adrp	x0, gpio
+	add	x0, x0, :lo12:gpio
+	ldr	x0, [x0]
+	ldr	w1, [x0]
+	adrp	x0, gpio
+	add	x0, x0, :lo12:gpio
+	ldr	x0, [x0]
+	and	w1, w1, -3585
+	str	w1, [x0]
+	mov	w0, 5
+	bl	usleep
 	adrp	x0, gpio
 	add	x0, x0, :lo12:gpio
 	ldr	x0, [x0]
@@ -593,6 +621,16 @@ i2c_get_ack:
 	str	w1, [x0]
 	mov	w0, 5
 	bl	usleep
+	nop
+.L26:
+	adrp	x0, gpio
+	add	x0, x0, :lo12:gpio
+	ldr	x0, [x0]
+	add	x0, x0, 52
+	ldr	w0, [x0]
+	and	w0, w0, 8
+	cmp	w0, 0
+	beq	.L26
 	adrp	x0, gpio
 	add	x0, x0, :lo12:gpio
 	ldr	x0, [x0]
@@ -625,32 +663,10 @@ i2c_get_ack:
 .LFE15:
 	.size	i2c_get_ack, .-i2c_get_ack
 	.align	2
-	.global	i2c_clock_stretch
-	.type	i2c_clock_stretch, %function
-i2c_clock_stretch:
-.LFB16:
-	.cfi_startproc
-	nop
-.L28:
-	adrp	x0, gpio
-	add	x0, x0, :lo12:gpio
-	ldr	x0, [x0]
-	add	x0, x0, 52
-	ldr	w0, [x0]
-	and	w0, w0, 8
-	cmp	w0, 0
-	beq	.L28
-	nop
-	nop
-	ret
-	.cfi_endproc
-.LFE16:
-	.size	i2c_clock_stretch, .-i2c_clock_stretch
-	.align	2
 	.global	i2c_send_byte
 	.type	i2c_send_byte, %function
 i2c_send_byte:
-.LFB17:
+.LFB16:
 	.cfi_startproc
 	stp	x29, x30, [sp, -48]!
 	.cfi_def_cfa_offset 48
@@ -659,11 +675,11 @@ i2c_send_byte:
 	mov	x29, sp
 	strb	w0, [sp, 31]
 	str	wzr, [sp, 44]
-	b	.L30
-.L33:
+	b	.L29
+.L32:
 	ldrsb	w0, [sp, 31]
 	cmp	w0, 0
-	bge	.L31
+	bge	.L30
 	adrp	x0, gpio
 	add	x0, x0, :lo12:gpio
 	ldr	x0, [x0]
@@ -673,8 +689,8 @@ i2c_send_byte:
 	ldr	x0, [x0]
 	and	w1, w1, -449
 	str	w1, [x0]
-	b	.L32
-.L31:
+	b	.L31
+.L30:
 	adrp	x0, gpio
 	add	x0, x0, :lo12:gpio
 	ldr	x0, [x0]
@@ -685,7 +701,7 @@ i2c_send_byte:
 	ldr	x0, [x0]
 	orr	w1, w1, 64
 	str	w1, [x0]
-.L32:
+.L31:
 	ldrb	w0, [sp, 31]
 	ubfiz	w0, w0, 1, 7
 	strb	w0, [sp, 31]
@@ -715,10 +731,10 @@ i2c_send_byte:
 	ldr	w0, [sp, 44]
 	add	w0, w0, 1
 	str	w0, [sp, 44]
-.L30:
+.L29:
 	ldr	w0, [sp, 44]
 	cmp	w0, 7
-	ble	.L33
+	ble	.L32
 	nop
 	nop
 	ldp	x29, x30, [sp], 48
@@ -727,13 +743,13 @@ i2c_send_byte:
 	.cfi_def_cfa_offset 0
 	ret
 	.cfi_endproc
-.LFE17:
+.LFE16:
 	.size	i2c_send_byte, .-i2c_send_byte
 	.align	2
 	.global	i2c_get_byte
 	.type	i2c_get_byte, %function
 i2c_get_byte:
-.LFB18:
+.LFB17:
 	.cfi_startproc
 	stp	x29, x30, [sp, -32]!
 	.cfi_def_cfa_offset 32
@@ -742,8 +758,8 @@ i2c_get_byte:
 	mov	x29, sp
 	strb	wzr, [sp, 31]
 	str	wzr, [sp, 24]
-	b	.L35
-.L36:
+	b	.L34
+.L35:
 	adrp	x0, gpio
 	add	x0, x0, :lo12:gpio
 	ldr	x0, [x0]
@@ -787,10 +803,10 @@ i2c_get_byte:
 	ldr	w0, [sp, 24]
 	add	w0, w0, 1
 	str	w0, [sp, 24]
-.L35:
+.L34:
 	ldr	w0, [sp, 24]
 	cmp	w0, 7
-	ble	.L36
+	ble	.L35
 	ldrb	w0, [sp, 31]
 	ldp	x29, x30, [sp], 32
 	.cfi_restore 30
@@ -798,13 +814,13 @@ i2c_get_byte:
 	.cfi_def_cfa_offset 0
 	ret
 	.cfi_endproc
-.LFE18:
+.LFE17:
 	.size	i2c_get_byte, .-i2c_get_byte
 	.align	2
 	.global	i2c_send_ack
 	.type	i2c_send_ack, %function
 i2c_send_ack:
-.LFB19:
+.LFB18:
 	.cfi_startproc
 	stp	x29, x30, [sp, -32]!
 	.cfi_def_cfa_offset 32
@@ -814,7 +830,7 @@ i2c_send_ack:
 	str	w0, [sp, 28]
 	ldr	w0, [sp, 28]
 	cmp	w0, 0
-	beq	.L39
+	beq	.L38
 	adrp	x0, gpio
 	add	x0, x0, :lo12:gpio
 	ldr	x0, [x0]
@@ -824,8 +840,8 @@ i2c_send_ack:
 	ldr	x0, [x0]
 	and	w1, w1, -449
 	str	w1, [x0]
-	b	.L40
-.L39:
+	b	.L39
+.L38:
 	adrp	x0, gpio
 	add	x0, x0, :lo12:gpio
 	ldr	x0, [x0]
@@ -836,7 +852,7 @@ i2c_send_ack:
 	ldr	x0, [x0]
 	orr	w1, w1, 64
 	str	w1, [x0]
-.L40:
+.L39:
 	adrp	x0, gpio
 	add	x0, x0, :lo12:gpio
 	ldr	x0, [x0]
@@ -848,6 +864,16 @@ i2c_send_ack:
 	str	w1, [x0]
 	mov	w0, 5
 	bl	usleep
+	nop
+.L40:
+	adrp	x0, gpio
+	add	x0, x0, :lo12:gpio
+	ldr	x0, [x0]
+	add	x0, x0, 52
+	ldr	w0, [x0]
+	and	w0, w0, 8
+	cmp	w0, 0
+	beq	.L40
 	adrp	x0, gpio
 	add	x0, x0, :lo12:gpio
 	ldr	x0, [x0]
@@ -867,13 +893,13 @@ i2c_send_ack:
 	.cfi_def_cfa_offset 0
 	ret
 	.cfi_endproc
-.LFE19:
+.LFE18:
 	.size	i2c_send_ack, .-i2c_send_ack
 	.align	2
 	.global	i2c_start_transmission
 	.type	i2c_start_transmission, %function
 i2c_start_transmission:
-.LFB20:
+.LFB19:
 	.cfi_startproc
 	stp	x29, x30, [sp, -32]!
 	.cfi_def_cfa_offset 32
@@ -899,7 +925,6 @@ i2c_start_transmission:
 	mov	w0, 2
 	b	.L43
 .L44:
-	bl	i2c_clock_stretch
 	mov	w0, 0
 .L43:
 	ldp	x29, x30, [sp], 32
@@ -908,13 +933,13 @@ i2c_start_transmission:
 	.cfi_def_cfa_offset 0
 	ret
 	.cfi_endproc
-.LFE20:
+.LFE19:
 	.size	i2c_start_transmission, .-i2c_start_transmission
 	.align	2
 	.global	i2c_write
 	.type	i2c_write, %function
 i2c_write:
-.LFB21:
+.LFB20:
 	.cfi_startproc
 	stp	x29, x30, [sp, -32]!
 	.cfi_def_cfa_offset 32
@@ -925,27 +950,19 @@ i2c_write:
 	ldrb	w0, [sp, 31]
 	bl	i2c_send_byte
 	bl	i2c_get_ack
-	cmp	w0, 0
-	beq	.L46
-	mov	w0, 1
-	b	.L47
-.L46:
-	bl	i2c_clock_stretch
-	mov	w0, 0
-.L47:
 	ldp	x29, x30, [sp], 32
 	.cfi_restore 30
 	.cfi_restore 29
 	.cfi_def_cfa_offset 0
 	ret
 	.cfi_endproc
-.LFE21:
+.LFE20:
 	.size	i2c_write, .-i2c_write
 	.align	2
 	.global	i2c_write_buf
 	.type	i2c_write_buf, %function
 i2c_write_buf:
-.LFB22:
+.LFB21:
 	.cfi_startproc
 	stp	x29, x30, [sp, -48]!
 	.cfi_def_cfa_offset 48
@@ -955,41 +972,41 @@ i2c_write_buf:
 	str	x0, [sp, 24]
 	str	w1, [sp, 20]
 	str	wzr, [sp, 44]
-	b	.L49
-.L52:
+	b	.L48
+.L51:
 	ldrsw	x0, [sp, 44]
 	ldr	x1, [sp, 24]
 	add	x0, x1, x0
 	ldrb	w0, [x0]
 	bl	i2c_write
 	cmp	w0, 0
-	beq	.L50
+	beq	.L49
 	mov	w0, 1
-	b	.L51
-.L50:
+	b	.L50
+.L49:
 	ldr	w0, [sp, 44]
 	add	w0, w0, 1
 	str	w0, [sp, 44]
-.L49:
+.L48:
 	ldr	w1, [sp, 44]
 	ldr	w0, [sp, 20]
 	cmp	w1, w0
-	blt	.L52
+	blt	.L51
 	mov	w0, 0
-.L51:
+.L50:
 	ldp	x29, x30, [sp], 48
 	.cfi_restore 30
 	.cfi_restore 29
 	.cfi_def_cfa_offset 0
 	ret
 	.cfi_endproc
-.LFE22:
+.LFE21:
 	.size	i2c_write_buf, .-i2c_write_buf
 	.align	2
 	.global	i2c_read
 	.type	i2c_read, %function
 i2c_read:
-.LFB23:
+.LFB22:
 	.cfi_startproc
 	stp	x29, x30, [sp, -48]!
 	.cfi_def_cfa_offset 48
@@ -1001,7 +1018,6 @@ i2c_read:
 	strb	w0, [sp, 47]
 	ldr	w0, [sp, 28]
 	bl	i2c_send_ack
-	bl	i2c_clock_stretch
 	ldrb	w0, [sp, 47]
 	ldp	x29, x30, [sp], 48
 	.cfi_restore 30
@@ -1009,18 +1025,107 @@ i2c_read:
 	.cfi_def_cfa_offset 0
 	ret
 	.cfi_endproc
-.LFE23:
+.LFE22:
 	.size	i2c_read, .-i2c_read
 	.section	.rodata
 	.align	3
 .LC1:
-	.string	"MCLK outputing %fMHz\n"
+	.string	"Initialization of camera settings failed (I2C line was in use)"
+	.align	3
+.LC2:
+	.string	"Initialization of camera settings failed (camera not found on I2C line, maybe address 0x%02x is wrong?)\n"
+	.align	3
+.LC3:
+	.string	"Initialization of camera settings failed (NACK received when sending settings)"
+	.align	3
+.LC4:
+	.string	"Initialization of camera settings successful"
+	.text
+	.align	2
+	.global	cam_init_settings
+	.type	cam_init_settings, %function
+cam_init_settings:
+.LFB23:
+	.cfi_startproc
+	stp	x29, x30, [sp, -32]!
+	.cfi_def_cfa_offset 32
+	.cfi_offset 29, -32
+	.cfi_offset 30, -24
+	mov	x29, sp
+	mov	w1, 0
+	mov	w0, 33
+	bl	i2c_start_transmission
+	str	w0, [sp, 28]
+	ldr	w0, [sp, 28]
+	cmp	w0, 1
+	bne	.L55
+	bl	i2c_stop
+	adrp	x0, .LC1
+	add	x0, x0, :lo12:.LC1
+	bl	puts
+	b	.L54
+.L55:
+	ldr	w0, [sp, 28]
+	cmp	w0, 2
+	bne	.L57
+	bl	i2c_stop
+	mov	w1, 33
+	adrp	x0, .LC2
+	add	x0, x0, :lo12:.LC2
+	bl	printf
+	b	.L54
+.L57:
+	mov	w1, 4
+	adrp	x0, CAM_SETTINGS
+	add	x0, x0, :lo12:CAM_SETTINGS
+	bl	i2c_write_buf
+	str	w0, [sp, 28]
+	ldr	w0, [sp, 28]
+	cmp	w0, 0
+	beq	.L58
+	bl	i2c_stop
+	adrp	x0, .LC3
+	add	x0, x0, :lo12:.LC3
+	bl	puts
+	b	.L54
+.L58:
+	bl	i2c_stop
+	adrp	x0, .LC4
+	add	x0, x0, :lo12:.LC4
+	bl	puts
+.L54:
+	ldp	x29, x30, [sp], 32
+	.cfi_restore 30
+	.cfi_restore 29
+	.cfi_def_cfa_offset 0
+	ret
+	.cfi_endproc
+.LFE23:
+	.size	cam_init_settings, .-cam_init_settings
+	.align	2
+	.global	cam_get_frame
+	.type	cam_get_frame, %function
+cam_get_frame:
+.LFB24:
+	.cfi_startproc
+	nop
+	ret
+	.cfi_endproc
+.LFE24:
+	.size	cam_get_frame, .-cam_get_frame
+	.section	.rodata
+	.align	3
+.LC5:
+	.string	"MCLK outputing %.2fMHz\n"
+	.align	3
+.LC6:
+	.string	"I2C line initialized at %.2fKHz\n"
 	.text
 	.align	2
 	.global	main
 	.type	main, %function
 main:
-.LFB24:
+.LFB25:
 	.cfi_startproc
 	stp	x29, x30, [sp, -32]!
 	.cfi_def_cfa_offset 32
@@ -1035,14 +1140,33 @@ main:
 	str	s0, [sp, 28]
 	ldr	s0, [sp, 28]
 	fcvt	d0, s0
-	adrp	x0, .LC1
-	add	x0, x0, :lo12:.LC1
+	adrp	x0, .LC5
+	add	x0, x0, :lo12:.LC5
 	bl	printf
-	bl	init_i2c
-	mov	w1, 0
-	mov	w0, 66
-	bl	i2c_start_transmission
-	bl	i2c_stop
+	bl	i2c_init
+	mov	x0, 4636737291354636288
+	fmov	d0, x0
+	adrp	x0, .LC6
+	add	x0, x0, :lo12:.LC6
+	bl	printf
+	bl	cam_init_settings
+	mov	x0, 4
+	bl	malloc
+	str	x0, [sp, 16]
+	ldr	x0, [sp, 16]
+	strb	wzr, [x0]
+	ldr	x0, [sp, 16]
+	add	x0, x0, 1
+	mov	w1, 1
+	strb	w1, [x0]
+	ldr	x0, [sp, 16]
+	add	x0, x0, 2
+	mov	w1, 2
+	strb	w1, [x0]
+	ldr	x0, [sp, 16]
+	add	x0, x0, 3
+	mov	w1, 3
+	strb	w1, [x0]
 	mov	w0, 0
 	ldp	x29, x30, [sp], 32
 	.cfi_restore 30
@@ -1050,7 +1174,7 @@ main:
 	.cfi_def_cfa_offset 0
 	ret
 	.cfi_endproc
-.LFE24:
+.LFE25:
 	.size	main, .-main
 	.ident	"GCC: (Debian 12.2.0-14) 12.2.0"
 	.section	.note.GNU-stack,"",@progbits
