@@ -1,12 +1,14 @@
 // DOCS:
-// ~/gitrepos/WiringPi (WiringPi source)
-// https://www.raspberrypi.org/app/uploads/2012/02/BCM2835-ARM-Peripherals.pdf (BCM2835 datasheet)
-// https://raspberrypi.stackexchange.com/questions/50406/multiple-clock-outputs-from-rpi (relevant thread on GPCLK)
-// https://www.reddit.com/r/raspberry_pi/comments/e9kffn/help_with_gpclk_i_have_checked_my_approach_for/ (relevant thread on GPCLK)
-// https://pinout.xyz/pinout/gpclk (RPi pinouts, info on GPCLK)
-// https://web.mit.edu/6.111/www/f2016/tools/OV7670_2006.pdf (OV7670 datasheet)
-// https://www.ti.com/lit/an/slva704/slva704.pdf?ts=1711951306149 (I2C protocol datasheet) 
-// https://www.prodigytechno.com/i2c-clock-stretching (on I2C clock stretching)
+// WiringPi source: https://github.com/WiringPi/WiringPi/tree/master
+// BCM2835 datasheet: https://www.raspberrypi.org/app/uploads/2012/02/BCM2835-ARM-Peripherals.pdf
+// Relevant thread on GPCLK: https://raspberrypi.stackexchange.com/questions/50406/multiple-clock-outputs-from-rpi
+// Relevant thread on GPCLK: https://www.reddit.com/r/raspberry_pi/comments/e9kffn/help_with_gpclk_i_have_checked_my_approach_for/
+// RPi pinouts, info on GPCLK: https://pinout.xyz/pinout/gpclk
+// OV7670 datasheet: https://web.mit.edu/6.111/www/f2016/tools/OV7670_2006.pdf
+// I2C protocol datasheet: https://www.ti.com/lit/an/slva704/slva704.pdf?ts=1711951306149 
+// I2C clock stretching: https://www.prodigytechno.com/i2c-clock-stretching
+// Loading 64-bit values in ARM assembly: https://stackoverflow.com/questions/64838776/understanding-arm-relocation-example-str-x0-tmp-lo12zbi-paddr
+// ARM reference manual: https://developer.arm.com/documentation/ddi0487/ka/
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -15,15 +17,7 @@
 #include <sys/mman.h>
 #include <fcntl.h>
 #include <math.h>
-
-// Datasheets and docs are all over the place with this (see BCM2835 datasheet sections
-// 1.1 and 6.1), some say that it's 0x7E000000, others say 0xFE000000, others say both,
-// but 0xFE000000 has worked for me (I'm pretty sure there's a ton of kernel/model 
-// revision/signed integer magic around this)
-#define GPIO_BASE 0xFE000000
-#define GPIO_CLK  (GPIO_BASE + 0x00101000)
-#define GPIO_PINS (GPIO_BASE + 0x00200000)
-#define BLOCK_SIZE (1024*4)
+#include "constants.h"
 
 // GPIO macros for faster GPIO operations (only working for GPIO 0-31 inclusive)
 // Sets GPIO pin p to output mode
@@ -37,68 +31,23 @@
 #define OUTPUT(p,l) gpio[(l)?0x07:0x0A]=1<<(p)
 // Returns 1<<p if GPIO p is HIGH, otherwise returns LOW
 #define INPUT(p) (gpio[0x0D]&(1<<(p)))
-// Returns the byte of data of 8 consequetive GPIO pins, starting at p
-// p must be between 0 and 24 (inclusive) since pins p...p+7 are read
-#define BYTEIN(p) ((gpio[0x0D]&(0xFF<<(p)))>>(p))
+// Reads the entire input register
+#define INPUTALL() (gpio[0x0D])
 
-// Mode values
-#define M_INPUT  0
-#define M_OUTPUT 1
-#define M_ALT0   4
-#define M_ALT1   5
-#define M_ALT2   6
-#define M_ALT3   7
-#define M_ALT4   3
-#define M_ALT5   2
-
-// Output values
-#define HIGH 1
-#define LOW 0
-
-// Resistor mode values
-#define R_FLOAT 0
-#define R_DOWN 1
-#define R_UP 2
-
-// Pin connections
-#define SCL  3
-#define SDA  2
-// This connection is pretty much obligatory, since only GPIO04 has the
-// alternate function of GPCLK (general purpose clock), at least by default
-#define MCLK 4
-#define PCLK 23
-#define HS   27
-#define VS   22
-// The D0...7 pins must all be connected to consequetive GPIO pins
-// (this is done in order to improve performance)
-#define DATA 14
-
-// Will be approximated as accurately as possible, in Hz
-#define MCLK_FREQ 10000000
-
-#define I2C_WRITE_MODE 0
-#define I2C_READ_MODE 1
-// Since I2C is done using software, bit-banging, the fastest way we have
-// of creating timings is with usleep, which can only wait up to 1 microsecond,
-// meaning the maximum frequency we can achieve is 500KHz (theoretically, in
-// practice the maximum would be slightly slower), in Hz
-#define I2C_FREQ 100000
-// We divide it by 2f because each cycle takes 2 clock changes (and by extension sleeps)
-// We don't have to worry about this big expression with the round function, as the
-// compiler automatically evaluates it (yes, I looked at the machine codes it produces)
-#define I2C_WAIT round(500000.0/((float)I2C_FREQ))
-// This is only te first 7 bits of the address, so in reality the 8-bit addresses are
-// 0x42 for WRITE and 0x43 for READ
-#define I2C_CAM_ADDR 0x21
-// These should be coordinated with the resolution and divider settings in CAM_SETTINGS
-#define CAM_IMG_WIDTH 640
-#define CAM_IMG_HEIGHT 480
+// Also include our optimized assembly version of getting a camera frame
+extern void cam_get_frame_fast(char* buf, int* inp_reg);
 
 // It's a very good idea to have a look at the datasheet for this one
 char CAM_SETTINGS[] = {
      0x12, 0x04 // RGB format
     ,0x15, 0x00 // HS acts like HREF, no PCLK during horizontal blank
-    ,0x11, 0x00 // Divide internal clock by 1
+    ,0x11, 0x00 // Don't divide internal clock
+    ,0x3E, 0x1C // Allow manual scaling, don't downscale PCLK
+    ,0x40, 0x10 // RGB565 output
+    ,0x8C, 0x00 // Not RGB444 output
+    ,0x73, 0x08 // Don't divide DSP scale control
+    ,0x71, 0xB5 // Colorbar test pattern
+    ,0x70, 0x3A // Colorbar test pattern
 };
 
 volatile int* gpio = NULL;
@@ -106,7 +55,7 @@ volatile int* clk = NULL;
 // char* is just as space and speed efficient as int*, since the instruction set for this ARM
 // CPU (Cortex A-72) permits 1 byte-aligned accesses and the compiler makes full use of them (I checked
 // the assembly)
-char** img = NULL;
+char* img = NULL;
 
 // Sets the pull-down/pull-up resistor of p to the mode specified by m, only working for GPIO 0-31
 // This is a VERY slow operation since it has to wait twice for clock signals to stabilise,
@@ -386,34 +335,30 @@ void cam_init_settings(){
         return;
     }
     i2c_stop();
-    printf("Initialization of camera settings successful\n");
+    //printf("Initialization of camera settings successful\n");
 }
 
-char** cam_init_buffer(){
-    // We split the buffer into memory blocks in order to avoid situations where
-    // malloc fails because there aren't enough continuous free memory blocks
-    char** buf = (char**)malloc(sizeof(char*) * CAM_IMG_HEIGHT);
-    for (int i = 0; i < CAM_IMG_HEIGHT; i++){
-        // We don't need to multiply by a size since we know a char is 1 byte
-        buf[i] = (char*)malloc(CAM_IMG_WIDTH);
-    }
-	return buf;
+char* cam_init_buffer(){
+    return (char*)malloc(CAM_IMG_SIZE);
 }
 
 // Writes the raw data to the buffer given to it
 // The buffer should be an array with CAM_IMG_HEIGHT pointers to char arrays
 // with CAM_IMG_WIDTH entries
-void cam_get_frame(char** buf){
+void cam_get_frame(char* buf){
     // Wait for new frame
     while (!INPUT(VS));
     while (INPUT(VS));
-    for (int i = 0; i < CAM_IMG_HEIGHT; i++){
+    for (int i = 0; i < CAM_IMG_SIZE;){
+        int page = i + CAM_IMG_WIDTH*CAM_IMG_BPP;
         // Wait for HREF
         while (!INPUT(HS));
-        for (int j = 0; j < CAM_IMG_WIDTH; j++){
+        for (; i < page; i++){
             while (!INPUT(PCLK));
             // Receive byte while PCLK is HIGH
-            buf[i][j] = BYTEIN(DATA);
+            // Since we shift out the pins below DATA, only the 8 inputs we care about should
+            // be saved, as they should be the 8 LSB and all other bits are overflowed out
+            buf[i] = INPUTALL() >> DATA;
             while (INPUT(PCLK));
         }
         while (INPUT(HS));
@@ -431,16 +376,24 @@ void cam_setup(){
     printf("I2C line initialized at %.2fKHz\n", (float)I2C_FREQ/1000.0);
     cam_init_settings();
     img = cam_init_buffer();
-    printf("Camera image buffer allocated (%d bytes)\n", CAM_IMG_HEIGHT*CAM_IMG_WIDTH);
-
+    printf("Camera image buffer allocated (%d bytes)\n", CAM_IMG_SIZE);
 }
 
 int main(){
     cam_setup();
-	while (1){
-		cam_get_frame(img);
-		printf("Camera frame captured\n");
-	}
+    cam_get_frame_fast(img, (int*)gpio + INPUTREG_OFFSET);
+    printf("Camera frame captured\n");
+    FILE* f = fopen("./test.rgb", "wb");
+    fwrite(img, 1, CAM_IMG_SIZE, f);
+    close((long int)f);
+    /*
+    int i = 100;
+    while (i){
+        i--;
+        cam_get_frame_fast(img, gpio + 0x0D);
+        //printf("Camera frame captured\n");
+    }
+    */
     return 0;
 }
 

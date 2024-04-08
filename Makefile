@@ -1,9 +1,11 @@
 CC = gcc
-CFLAGS = -lc -lm -lwiringPi -Wall -Wextra -Wpedantic
+FLAGS = -Wall -Wextra -Wpedantic -Ofast
+ASMFLAGS = -fno-asynchronous-unwind-tables -fno-dwarf2-cfi-asm
+COMPFLAGS = -lc -lm
 
 asm: main.c
-	$(CC) -c main main.c $(CFLAGS) -S
+	$(CC) -S main.s main.c $(FLAGS) $(ASMFLAGS)
 
-main: main.c
-	$(CC) -o main main.c $(CFLAGS)
+main: cam_get_frame_fast.S main.c
+	$(CC) -o main main.c cam_get_frame_fast.S $(FLAGS) $(COMPFLAGS)
 
