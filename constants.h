@@ -7,9 +7,6 @@
 #define GPIO_PINS (GPIO_BASE + 0x00200000)
 #define BLOCK_SIZE (1024*4)
 
-// Offset from the GPIO_PINS address to the first input register, used to not have some magic numbers
-#define INPUTREG_OFFSET 0x0D
-
 // Mode values
 #define M_INPUT  0
 #define M_OUTPUT 1
@@ -43,7 +40,7 @@
 #define DATA 14
 
 // Will be approximated as accurately as possible, in Hz
-#define MCLK_FREQ 48000000
+#define MCLK_FREQ 10000000
 
 #define I2C_WRITE_MODE 0
 #define I2C_READ_MODE 1

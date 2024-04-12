@@ -35,17 +35,19 @@
 #define INPUTALL() (gpio[0x0D])
 
 // Also include our optimized assembly version of getting a camera frame
-extern void cam_get_frame_fast(char* buf, int* inp_reg);
+extern void cam_get_frame_fast(char* buf, int* gp_reg);
 
 // It's a very good idea to have a look at the datasheet for this one
 char CAM_SETTINGS[] = {
-     0x12, 0x04 // RGB format
-    ,0x15, 0x00 // HS acts like HREF, no PCLK during horizontal blank
-    ,0x11, 0x00 // Don't divide internal clock
-    ,0x3E, 0x1C // Allow manual scaling, don't downscale PCLK
-    ,0x40, 0x10 // RGB565 output
+     0x12, 0x80 // Reset registers 
+    ,0x12, 0x04 // RGB format
+    ,0x0F, 0x80 // Keep HREF output at optical black, reset timing when format changes
+    ,0x15, 0x20 // HS acts like HREF, no PCLK during horizontal blank
+    ,0x11, 0x1F // Don't divide internal clock
+    ,0x3E, 0x18 // Allow manual scaling, don't downscale PCLK
+    ,0x40, 0x10 // RGB565 output, full range output
     ,0x8C, 0x00 // Not RGB444 output
-    ,0x73, 0x08 // Don't divide DSP scale control
+    ,0x73, 0x00 // Don't divide DSP scale control
     ,0x71, 0xB5 // Colorbar test pattern
     ,0x70, 0x3A // Colorbar test pattern
 };
@@ -284,6 +286,14 @@ void cam_init_pins(){
     // GPCLK have it on ALT0)
     MODE(MCLK, M_ALT0);
     RESISTOR(MCLK, R_FLOAT);
+    // Setup the event registers for the PCLK pin such that only the rising edge event is output
+    // to the event detect register
+    gpio[0x13] = gpio[0x13]  |  (1 << PCLK);
+    gpio[0x16] = gpio[0x16] & (~(1 << PCLK));
+    gpio[0x19] = gpio[0x19] & (~(1 << PCLK));
+    gpio[0x1C] = gpio[0x1C] & (~(1 << PCLK));
+    gpio[0x1F] = gpio[0x1F] & (~(1 << PCLK));
+    gpio[0x22] = gpio[0x22] & (~(1 << PCLK));
 }
 
 // Initializes the MCLK pin to output the best approximation with whole dividers in MHz
@@ -316,26 +326,28 @@ float cam_init_mclk(float hz){
 }
 
 void cam_init_settings(){
-    int res = i2c_start_transmission(I2C_CAM_ADDR, I2C_WRITE_MODE);
-    if (res == 1){
+    // Write only 1 register/value pair per transmission, just in case
+    for (long unsigned int i = 0; i < sizeof(CAM_SETTINGS); i += 2){
+        int res = i2c_start_transmission(I2C_CAM_ADDR, I2C_WRITE_MODE);
+        if (res == 1){
+            i2c_stop();
+            printf("Initialization of camera settings failed (I2C line was in use)\n");
+            return;
+        }
+        else if (res == 2){
+            i2c_stop();
+            printf("Initialization of camera settings failed (camera not found on I2C line, maybe address 0x%02x is wrong?)\n", I2C_CAM_ADDR);
+            return;
+        }
+        res = i2c_write_buf(CAM_SETTINGS + i, 2);
+        if (res){
+            i2c_stop();
+            printf("Initialization of camera settings failed (NACK received when sending settings)\n");
+            return;
+        }
         i2c_stop();
-        printf("Initialization of camera settings failed (I2C line was in use)\n");
-        return;
     }
-    else if (res == 2){
-        i2c_stop();
-        printf("Initialization of camera settings failed (camera not found on I2C line, maybe address 0x%02x is wrong?)\n", I2C_CAM_ADDR);
-        return;
-    }
-    // We don't need to divide the size of CAM_SETTINGS since it's already in bytes
-    res = i2c_write_buf(CAM_SETTINGS, sizeof(CAM_SETTINGS));
-    if (res){
-        i2c_stop();
-        printf("Initialization of camera settings failed (NACK received when sending settings)\n");
-        return;
-    }
-    i2c_stop();
-    //printf("Initialization of camera settings successful\n");
+    printf("Initialization of camera settings successful\n");
 }
 
 char* cam_init_buffer(){
@@ -365,6 +377,7 @@ void cam_get_frame(char* buf){
     }
 }
 
+
 void cam_setup(){
     init_mmaps();
     printf("Memory maps to GPIO (%p) and GPCLK (%p) registers successful\n", (void*)GPIO_PINS, (void*)GPIO_CLK);
@@ -381,19 +394,18 @@ void cam_setup(){
 
 int main(){
     cam_setup();
-    cam_get_frame_fast(img, (int*)gpio + INPUTREG_OFFSET);
+    //cam_get_frame(img);
+    cam_get_frame_fast(img, (int*)gpio);
     printf("Camera frame captured\n");
     FILE* f = fopen("./test.rgb", "wb");
     fwrite(img, 1, CAM_IMG_SIZE, f);
     close((long int)f);
-    /*
     int i = 100;
     while (i){
         i--;
-        cam_get_frame_fast(img, gpio + 0x0D);
-        //printf("Camera frame captured\n");
+        cam_get_frame_fast(img, (int*)gpio);
+        printf("Camera frame captured\n");
     }
-    */
     return 0;
 }
 

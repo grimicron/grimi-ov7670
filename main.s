@@ -1015,6 +1015,24 @@ cam_init_pins:
 	ldp	x21, x22, [sp, 32]
 	ldr	x23, [sp, 48]
 	str	wzr, [x0, 152]
+	ldr	w1, [x0, 76]
+	and	w1, w1, -8388609
+	str	w1, [x0, 76]
+	ldr	w1, [x0, 88]
+	and	w1, w1, -8388609
+	str	w1, [x0, 88]
+	ldr	w1, [x0, 100]
+	and	w1, w1, -8388609
+	str	w1, [x0, 100]
+	ldr	w1, [x0, 112]
+	and	w1, w1, -8388609
+	str	w1, [x0, 112]
+	ldr	w1, [x0, 124]
+	orr	w1, w1, 8388608
+	str	w1, [x0, 124]
+	ldr	w1, [x0, 136]
+	and	w1, w1, -8388609
+	str	w1, [x0, 136]
 	ldp	x29, x30, [sp], 64
 .LCFI68:
 	ret
@@ -1450,23 +1468,6 @@ cam_get_frame:
 	ret
 .LFE42:
 	.size	cam_get_frame, .-cam_get_frame
-	.section	.rodata.str1.8
-	.align	3
-.LC4:
-	.string	"Memory maps to GPIO (%p) and GPCLK (%p) registers successful\n"
-	.align	3
-.LC5:
-	.string	"Pins assigned correct function"
-	.align	3
-.LC6:
-	.string	"MCLK outputing %.2fMHz\n"
-	.align	3
-.LC7:
-	.string	"I2C line initialized at %.2fKHz\n"
-	.align	3
-.LC8:
-	.string	"Camera image buffer allocated (%d bytes)\n"
-	.text
 	.align	2
 	.p2align 4,,11
 	.global	cam_setup
@@ -1510,16 +1511,7 @@ cam_setup:
 	mov	w0, w20
 	str	x1, [x21, 8]
 	bl	close
-	mov	x2, 4096
-	mov	x1, 4263510016
-	movk	x2, 0xfe10, lsl 16
-	adrp	x0, .LC4
-	add	x0, x0, :lo12:.LC4
-	bl	printf
 	bl	cam_init_pins
-	adrp	x0, .LC5
-	add	x0, x0, :lo12:.LC5
-	bl	puts
 	ldr	x1, [x21, 8]
 	mov	w0, 32
 	movk	w0, 0x5a00, lsl 16
@@ -1528,25 +1520,20 @@ cam_setup:
 .L210:
 	ldr	w0, [x1, 112]
 	tbnz	x0, 7, .L210
-	mov	w0, 40960
-	mov	x2, 4632233691727265792
-	movk	w0, 0x5a00, lsl 16
-	str	w0, [x1, 116]
-	mov	w0, 22
-	fmov	d0, x2
-	movk	w0, 0x5a00, lsl 16
-	str	w0, [x1, 112]
-	adrp	x0, .LC6
-	add	x0, x0, :lo12:.LC6
-	bl	printf
+	ldr	x0, [x19, #:lo12:.LANCHOR0]
+	mov	w2, 8192
+	movk	w2, 0x5a03, lsl 16
+	str	w2, [x1, 116]
+	mov	w2, 22
 	mov	w22, 2
-	ldr	x1, [x19, #:lo12:.LANCHOR0]
+	movk	w2, 0x5a00, lsl 16
+	str	w2, [x1, 112]
+	str	w22, [x0, 148]
 	mov	w0, 150
 	mov	w21, 8
 	mov	w20, 4
-	add	x23, x19, :lo12:.LANCHOR0
-	str	w22, [x1, 148]
 	bl	usleep
+	add	x23, x19, :lo12:.LANCHOR0
 	ldr	x1, [x19, #:lo12:.LANCHOR0]
 	mov	w0, 150
 	str	w21, [x1, 152]
@@ -1560,52 +1547,29 @@ cam_setup:
 	mov	w0, 150
 	str	w20, [x1, 152]
 	bl	usleep
-	ldr	x1, [x19, #:lo12:.LANCHOR0]
-	mov	x0, 4636737291354636288
-	fmov	d0, x0
-	adrp	x0, .LC7
-	add	x0, x0, :lo12:.LC7
-	str	wzr, [x1, 152]
-	str	w21, [x1, 40]
-	str	w20, [x1, 40]
-	ldr	w2, [x1]
-	and	w2, w2, -3585
-	str	w2, [x1]
-	ldr	w2, [x1]
-	and	w2, w2, -449
-	str	w2, [x1]
-	bl	printf
+	ldr	x0, [x19, #:lo12:.LANCHOR0]
+	str	wzr, [x0, 152]
+	str	w21, [x0, 40]
+	str	w20, [x0, 40]
+	ldr	w1, [x0]
+	and	w1, w1, -3585
+	str	w1, [x0]
+	ldr	w1, [x0]
+	and	w1, w1, -449
+	str	w1, [x0]
 	bl	cam_init_settings
 	mov	x0, 24576
 	movk	x0, 0x9, lsl 16
 	bl	malloc
 	ldp	x19, x20, [sp, 16]
-	mov	x2, x0
 	ldp	x21, x22, [sp, 32]
-	str	x2, [x23, 16]
+	str	x0, [x23, 16]
 	ldr	x23, [sp, 48]
-	mov	w1, 24576
 	ldp	x29, x30, [sp], 64
 .LCFI90:
-	movk	w1, 0x9, lsl 16
-	adrp	x0, .LC8
-	add	x0, x0, :lo12:.LC8
-	b	printf
+	ret
 .LFE43:
 	.size	cam_setup, .-cam_setup
-	.section	.rodata.str1.8
-	.align	3
-.LC9:
-	.string	"%p\n"
-	.align	3
-.LC10:
-	.string	"Camera frame captured"
-	.align	3
-.LC11:
-	.string	"wb"
-	.align	3
-.LC12:
-	.string	"./test.rgb"
 	.section	.text.startup,"ax",@progbits
 	.align	2
 	.p2align 4,,11
@@ -1613,42 +1577,13 @@ cam_setup:
 	.type	main, %function
 main:
 .LFB44:
-	stp	x29, x30, [sp, -32]!
+	stp	x29, x30, [sp, -16]!
 .LCFI91:
 	mov	x29, sp
-	stp	x19, x20, [sp, 16]
-.LCFI92:
 	bl	cam_setup
-	adrp	x1, .LANCHOR0
-	add	x20, x1, :lo12:.LANCHOR0
-	adrp	x0, .LC9
-	ldr	x1, [x1, #:lo12:.LANCHOR0]
-	add	x0, x0, :lo12:.LC9
-	add	x1, x1, 13
-	bl	printf
-	ldr	x0, [x20, 16]
-	bl	cam_get_frame_fast
-	adrp	x0, .LC10
-	add	x0, x0, :lo12:.LC10
-	bl	puts
-	adrp	x1, .LC11
-	adrp	x0, .LC12
-	add	x1, x1, :lo12:.LC11
-	add	x0, x0, :lo12:.LC12
-	bl	fopen
-	mov	x3, x0
-	mov	x19, x0
-	mov	x2, 24576
-	ldr	x0, [x20, 16]
-	movk	x2, 0x9, lsl 16
-	mov	x1, 1
-	bl	fwrite
-	mov	w0, w19
-	bl	close
-	ldp	x19, x20, [sp, 16]
 	mov	w0, 0
-	ldp	x29, x30, [sp], 32
-.LCFI93:
+	ldp	x29, x30, [sp], 16
+.LCFI92:
 	ret
 .LFE44:
 	.size	main, .-main
@@ -1663,8 +1598,7 @@ main:
 	.size	CAM_SETTINGS, 18
 CAM_SETTINGS:
 	.string	"\022\004\025"
-	.string	"\021"
-	.string	">\034@\020\214"
+	.string	"\021\037>\034@\020\214"
 	.ascii	"s\bq\265p:"
 	.bss
 	.align	3
@@ -2543,23 +2477,15 @@ img:
 	.byte	0x4
 	.4byte	.LCFI91-.LFB44
 	.byte	0xe
-	.uleb128 0x20
+	.uleb128 0x10
 	.byte	0x9d
-	.uleb128 0x4
-	.byte	0x9e
-	.uleb128 0x3
-	.byte	0x4
-	.4byte	.LCFI92-.LCFI91
-	.byte	0x93
 	.uleb128 0x2
-	.byte	0x94
+	.byte	0x9e
 	.uleb128 0x1
 	.byte	0x4
-	.4byte	.LCFI93-.LCFI92
+	.4byte	.LCFI92-.LCFI91
 	.byte	0xde
 	.byte	0xdd
-	.byte	0xd3
-	.byte	0xd4
 	.byte	0xe
 	.uleb128 0
 	.align	3
